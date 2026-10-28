@@ -100,3 +100,30 @@ Para evitar memorizar una única ruta, cada episodio usa una semilla: el mapa ba
 
 Se registran misiones completas, muestras recogidas, batería restante, choques y distancia recorrida. El experimento de robustez activa `dust_storm` y compara si el modelo continúa completando la misión bajo ruido de sensores y menor adherencia.
 
+## 12. Rangos de observación y parámetros
+
+| Observación o parámetro | Unidad | Rango |
+|---|---:|---:|
+| Posición `x,y` | m | `0–40` |
+| Orientación | radianes | `-π–π` |
+| Velocidad | m/s | `0–2` |
+| Altura | m | `0–0.8` |
+| Batería | % | `0–100` |
+| Rayos de distancia | m | `0–40` más ruido `±0.5` en tormenta |
+| Distancia a objetivo | m | `0–40` |
+| Distancia a astronauta | m | `0–40` |
+| Etapa de misión | índice | `0–2` |
+| Adherencia | coeficiente | `0.3–1.0` |
+
+## 13. Cinco transiciones de ejemplo
+
+1. El rover observa la muestra 1 a su derecha, avanza y reduce su distancia; recibe progreso positivo.
+2. Se aproxima a la muestra con velocidad menor de `0.15 m/s`, ejecuta agarrar y recibe `+20`, sin cobrar progreso adicional en ese mismo paso.
+3. Detecta un asteroide en la trayectoria, gira y se aleja; el cambio de distancia produce la recompensa diferencial correspondiente.
+4. Pasa sobre la roca pequeña con salto activo; la gravedad lo hace subir y volver al suelo en aproximadamente `13 pasos`, con consumo extra de batería.
+5. Tras recoger ambas muestras, vuelve a la zona de base; si no tocó un astronauta en ese paso, recibe `+50` y termina con éxito.
+
+## 14. Respuesta al reto del equipo
+
+La trampa principal era acercarse y alejarse repetidamente para cobrar progreso. Se evita usando la diferencia entre distancia anterior y actual: acercarse es positivo y alejarse es negativo. Además, cada muestra solo puede recogerse una vez y el progreso solo se calcula hacia la muestra de la etapa actual.
+

@@ -32,6 +32,7 @@ class MarsSampleRoverEnv(gym.Env):
         self.base_samples = [np.array([22.0, 32.0]), np.array([18.0, 5.0])]
         self.asteroids = [(8, 33, 1.5), (17, 24, 1.5), (27, 28, 1.25),
                           (34, 22, 1.0), (13, 13, 1.0), (34, 8, 1.5)]
+        self.small_rocks = [(11.0, 29.0, 0.4)]
         self.craters = [(7, 24, 2.5), (31, 35, 2.5), (24, 12, 3.0)]
         self.astronauts = [(16, 30), (32, 15)]
 
@@ -54,7 +55,7 @@ class MarsSampleRoverEnv(gym.Env):
         raw = [*self.position / 40, (self.heading + pi) / (2 * pi), self.speed / 2,
                self.battery / 100, self.height / 0.8, float(self.cargo), self.stage / 2,
                nearest_astronaut / 40, distance / 40, (bearing + pi) / (2 * pi),
-               *[r / 40 for r in rays]]
+               *[np.clip(r + (self.np_random.uniform(-0.5, 0.5) if self.dust_storm else 0), 0, 40) / 40 for r in rays]]
         return np.asarray(raw, dtype=np.float32)
 
     def _ray_distance(self, angle):
@@ -64,7 +65,7 @@ class MarsSampleRoverEnv(gym.Env):
         for bound in (0, 40):
             if direction[0]: values.append((bound - self.position[0]) / direction[0])
             if direction[1]: values.append((bound - self.position[1]) / direction[1])
-        for ox, oy, radius in self.asteroids:
+        for ox, oy, radius in [*self.asteroids, *self.small_rocks]:
             delta = np.array([ox, oy]) - self.position
             projection = float(delta @ direction)
             if projection > 0: values.append(projection - radius)
@@ -96,6 +97,7 @@ class MarsSampleRoverEnv(gym.Env):
             sensor_noise = self.np_random.uniform(-0.5, 0.5)
         else:
             adhesion, sensor_noise = 1.0, 0.0
+        old_position = self.position.copy()
         self.heading = (self.heading + float(turn) * 0.2) % (2 * pi)
         self.speed = float(np.clip(self.speed + throttle * 0.18 * adhesion, 0, 2))
         if abs(turn) > 0.8: reward -= 0.2
@@ -108,24 +110,28 @@ class MarsSampleRoverEnv(gym.Env):
         self.position += np.array([cos(self.heading), sin(self.heading)]) * self.speed * 0.1
         self.battery = max(0, self.battery - 0.03 - 0.03 * (self.speed / 2))
         reward -= 0.03 * (self.speed / 2)
+        picked = False
         if grab > 0.5:
-            if self.stage < 2 and self._distance(self._target()) < 0.5 and self.speed < 0.3:
-                self.stage += 1; self.cargo = min(1, self.stage); reward += 10
+            if self.stage < 2 and self._distance(self._target()) < 0.8 and self.speed < 0.15:
+                self.stage += 1; self.cargo = min(1, self.stage); reward += 20; picked = True
             else: reward -= 0.5
         previous = self.distance_to_target
         self.distance_to_target = self._distance(self._target())
-        reward += 5 * (previous - self.distance_to_target)
+        if not picked:
+            reward += 5 * (previous - self.distance_to_target)
         terminated = False
         if any(self._distance(np.array(c[:2])) <= c[2] for c in self.craters):
             terminated, reward = True, reward - 100
         if any(self._distance(np.array(a)) <= 1 for a in self.astronauts):
-            terminated, reward = True, reward - 5
+            terminated, reward = True, reward - 100
         if not (0 <= self.position[0] <= 40 and 0 <= self.position[1] <= 40):
             reward -= 1; self.position = np.clip(self.position, 0, 40)
-        if any(self._distance(np.array(a[:2])) <= a[2] for a in self.asteroids):
-            self.speed = 0; reward -= 1
-        if self.stage == 2 and self._distance(self.base) <= 2:
-            terminated, reward = True, reward + 20
+        collisions = list(self.asteroids) if self.height == 0 else [a for a in self.asteroids if a[2] > 0.4]
+        collisions += self.small_rocks if self.height == 0 else []
+        if any(self._distance(np.array(a[:2])) <= a[2] for a in collisions):
+            self.position = old_position; self.speed = 0; reward -= 10
+        if not terminated and self.stage == 2 and self._distance(self.base) <= 2:
+            terminated, reward = True, reward + 50
         if self.battery <= 0:
             terminated, reward = True, reward - 10
         truncated = self.steps >= self.max_steps and not terminated

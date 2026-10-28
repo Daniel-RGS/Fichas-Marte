@@ -96,6 +96,7 @@ class MarsSampleRoverEnv(gym.Env):
         self.stage = 0
         self.steps = 0
         self.distance_to_target = self._distance(self._target())
+        self.events = []
         return self._observation(), {"dust_storm": self.dust_storm}
 
     def step(self, action):
@@ -103,6 +104,7 @@ class MarsSampleRoverEnv(gym.Env):
         throttle, turn, jump, grab = np.clip(action, [-1, -1, 0, 0], [1, 1, 1, 1])
         self.steps += 1
         reward = -0.03
+        events = []
         if self.dust_storm:
             adhesion = 0.3
             sensor_noise = self.np_random.uniform(-0.5, 0.5)
@@ -113,19 +115,27 @@ class MarsSampleRoverEnv(gym.Env):
         friction = 0.08 if abs(float(throttle)) < 0.05 else 0.0
         self.speed = float(np.clip(self.speed + throttle * 0.18 * adhesion - friction, 0, 2))
         if abs(turn) > 0.8: reward -= 0.2
+        was_airborne = self.height > 0
         if jump > 0.5 and self.height == 0 and self.speed <= 2:
             self.height, self.battery = 0.8, max(0, self.battery - 3)
+            events.append({"type": "jump", "position": self.position.tolist(), "reward": 0})
         elif jump > 0.5:
             reward -= 0.5
         if self.height > 0:
             self.height = max(0, self.height - 0.8 / 13)
+            if was_airborne and self.height == 0:
+                events.append({"type": "landing", "position": self.position.tolist(), "reward": 0})
         self.position += np.array([cos(self.heading), sin(self.heading)]) * self.speed * 0.1
         self.battery = max(0, self.battery - 0.03 - 0.03 * (self.speed / 2))
+        if self.battery < 10 and self.battery + 0.03 + 0.03 * (self.speed / 2) >= 10:
+            events.append({"type": "battery_low", "position": self.position.tolist(), "reward": 0})
         reward -= 0.03 * (self.speed / 2)
         picked = False
         if grab > 0.5:
             if self.stage < 2 and self._distance(self._target()) < 0.8 and self.speed < 0.15:
                 self.stage += 1; self.cargo = min(1, self.stage); reward += 20; picked = True
+                events.append({"type": "sample_collected", "sample": self.stage,
+                               "position": self.position.tolist(), "reward": 20})
             else: reward -= 0.5
         previous = self.distance_to_target
         self.distance_to_target = self._distance(self._target())
@@ -134,20 +144,28 @@ class MarsSampleRoverEnv(gym.Env):
         terminated = False
         if any(self._distance(np.array(c[:2])) <= c[2] for c in self.craters):
             terminated, reward = True, reward - 100
+            events.append({"type": "crater", "position": self.position.tolist(), "reward": -100})
         if any(self._distance(np.array(a)) <= 1 for a in self.astronauts):
             terminated, reward = True, reward - 100
+            events.append({"type": "astronaut", "position": self.position.tolist(), "reward": -100})
         if not (0 <= self.position[0] <= 40 and 0 <= self.position[1] <= 40):
             reward -= 1; self.position = np.clip(self.position, 0, 40)
         collisions = list(self.asteroids) if self.height == 0 else [a for a in self.asteroids if a[2] > 0.4]
         collisions += self.small_rocks if self.height == 0 else []
         if any(self._distance(np.array(a[:2])) <= a[2] for a in collisions):
             self.position = old_position; self.speed = 0; reward -= 10
+            events.append({"type": "asteroid_collision", "position": self.position.tolist(), "reward": -10})
         if not terminated and self.stage == 2 and self._distance(self.base) <= 2:
             terminated, reward = True, reward + 50
+            events.append({"type": "victory", "position": self.position.tolist(), "reward": 50})
         if self.battery <= 0:
             terminated, reward = True, reward - 10
+            events.append({"type": "battery_empty", "position": self.position.tolist(), "reward": -10})
         truncated = self.steps >= self.max_steps and not terminated
-        info = {"battery": self.battery, "stage": self.stage, "sensor_noise": sensor_noise}
+        for event in events:
+            event["step"] = self.steps
+        self.events.extend(events)
+        info = {"battery": self.battery, "stage": self.stage, "sensor_noise": sensor_noise, "events": events}
         return self._observation(), float(reward), terminated, truncated, info
 
     def render(self):

@@ -77,8 +77,16 @@ class MarsSampleRoverEnv(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
-        jitter = self.np_random.uniform(-2, 2, size=2)
-        self.samples = [np.clip(p + jitter, 1, 39) for p in self.base_samples]
+        self.samples = []
+        for base_sample in self.base_samples:
+            for _ in range(100):
+                candidate = np.clip(base_sample + self.np_random.uniform(-2, 2, size=2), 1, 39)
+                blocked = any(np.linalg.norm(candidate - np.array(o[:2])) <= o[2] + .8 for o in [*self.asteroids, *self.craters])
+                if not blocked and all(np.linalg.norm(candidate - other) > 1.5 for other in self.samples):
+                    self.samples.append(candidate)
+                    break
+            else:
+                self.samples.append(np.array(base_sample, dtype=float))
         self.position = self.base.copy()
         self.heading = float(self.np_random.uniform(-pi, pi))
         self.speed = 0.0
@@ -102,7 +110,8 @@ class MarsSampleRoverEnv(gym.Env):
             adhesion, sensor_noise = 1.0, 0.0
         old_position = self.position.copy()
         self.heading = (self.heading + float(turn) * 0.2 + pi) % (2 * pi) - pi
-        self.speed = float(np.clip(self.speed + throttle * 0.18 * adhesion, 0, 2))
+        friction = 0.08 if abs(float(throttle)) < 0.05 else 0.0
+        self.speed = float(np.clip(self.speed + throttle * 0.18 * adhesion - friction, 0, 2))
         if abs(turn) > 0.8: reward -= 0.2
         if jump > 0.5 and self.height == 0 and self.speed <= 2:
             self.height, self.battery = 0.8, max(0, self.battery - 3)

@@ -3,14 +3,23 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .agent import RoverQAgent
 from .environment import MarsSampleRoverEnv
+from .agent import RoverQAgent
 
 MODEL = Path("artifacts/mars-rover-q.pkl")
+PPO_MODEL = Path("artifacts/mars-rover-ppo")
 
 
 def train(episodes):
-    env, agent = MarsSampleRoverEnv(), RoverQAgent()
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.env_checker import check_env
+    check_env(MarsSampleRoverEnv())
+    model = PPO("MlpPolicy", MarsSampleRoverEnv(), verbose=0, seed=7, n_steps=1024, batch_size=256)
+    total_steps = max(episodes, 1) * 1000
+    model.learn(total_timesteps=total_steps)
+    model.save(PPO_MODEL)
+    print(f"modelo PPO={PPO_MODEL} pasos={total_steps}")
+    return
     successes = 0
     for episode in range(episodes):
         obs, _ = env.reset(seed=episode)

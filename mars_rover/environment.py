@@ -68,7 +68,10 @@ class MarsSampleRoverEnv(gym.Env):
         for ox, oy, radius in [*self.asteroids, *self.small_rocks]:
             delta = np.array([ox, oy]) - self.position
             projection = float(delta @ direction)
-            if projection > 0: values.append(projection - radius)
+            perpendicular = float(direction[0] * delta[1] - direction[1] * delta[0])
+            if projection > 0 and abs(perpendicular) <= radius:
+                offset = max(0.0, radius * radius - perpendicular * perpendicular) ** 0.5
+                values.append(projection - offset)
         valid = [v for v in values if v >= 0]
         return max(0.0, min(40.0, min(valid) if valid else 40.0))
 
@@ -98,7 +101,7 @@ class MarsSampleRoverEnv(gym.Env):
         else:
             adhesion, sensor_noise = 1.0, 0.0
         old_position = self.position.copy()
-        self.heading = (self.heading + float(turn) * 0.2) % (2 * pi)
+        self.heading = (self.heading + float(turn) * 0.2 + pi) % (2 * pi) - pi
         self.speed = float(np.clip(self.speed + throttle * 0.18 * adhesion, 0, 2))
         if abs(turn) > 0.8: reward -= 0.2
         if jump > 0.5 and self.height == 0 and self.speed <= 2:

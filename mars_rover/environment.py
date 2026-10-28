@@ -97,6 +97,12 @@ class MarsSampleRoverEnv(gym.Env):
         self.steps = 0
         self.distance_to_target = self._distance(self._target())
         self.events = []
+        self.trajectory = []
+        self.episode_metadata = {
+            "seed": seed,
+            "dust_storm": self.dust_storm,
+            "samples": [p.tolist() for p in self.samples],
+        }
         return self._observation(), {"dust_storm": self.dust_storm}
 
     def step(self, action):
@@ -133,10 +139,14 @@ class MarsSampleRoverEnv(gym.Env):
         picked = False
         if grab > 0.5:
             if self.stage < 2 and self._distance(self._target()) < 0.8 and self.speed < 0.15:
+                sample_number = self.stage + 1
+                sample_position = self._target().copy().tolist()
                 self.stage += 1; self.cargo = min(1, self.stage); reward += 20; picked = True
-                events.append({"type": "sample_collected", "sample": self.stage,
-                               "position": self.position.tolist(), "reward": 20})
-            else: reward -= 0.5
+                events.append({"type": "sample_collected", "sample": sample_number,
+                               "position": self.position.tolist(), "sample_position": sample_position, "reward": 20})
+            else:
+                reward -= 0.5
+                events.append({"type": "invalid_grab", "position": self.position.tolist(), "reward": -0.5})
         previous = self.distance_to_target
         self.distance_to_target = self._distance(self._target())
         if not picked:
@@ -162,9 +172,14 @@ class MarsSampleRoverEnv(gym.Env):
             terminated, reward = True, reward - 10
             events.append({"type": "battery_empty", "position": self.position.tolist(), "reward": -10})
         truncated = self.steps >= self.max_steps and not terminated
+        if truncated:
+            events.append({"type": "timeout", "position": self.position.tolist(), "reward": 0})
         for event in events:
             event["step"] = self.steps
         self.events.extend(events)
+        self.trajectory.append({"step": self.steps, "position": self.position.tolist(),
+                                "heading": self.heading, "speed": self.speed,
+                                "height": self.height, "battery": self.battery})
         info = {"battery": self.battery, "stage": self.stage, "sensor_noise": sensor_noise, "events": events}
         return self._observation(), float(reward), terminated, truncated, info
 

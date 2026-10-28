@@ -27,9 +27,9 @@ Leyenda: `🚙` rover, `◆` muestras, `●` asteroides, `◯` cráteres, `👨�
 
 | Elemento | Cantidad | Regla |
 |---|---:|---|
-| Base | 1, en `(0,0)` | Inicio y llegada; zona de `3 × 3 m`. |
-| Muestras | 2 | Muestra 1 `(16,18)`, muestra 2 `(35,32)`; se recogen en orden. |
-| Asteroides | 5 | Rocas sólidas de `1–3 m` de radio; choque `-1` y velocidad a `0`. |
+| Base | 1, en `(4,36)` | Inicio y llegada; zona de `4 × 4 m`. |
+| Muestras | 2 | Muestra 1 `(22,32)`, muestra 2 `(18,5)`; se recogen en orden. |
+| Asteroides | 6 | Rocas sólidas de `1–1.5 m` de radio; choque `-1` y velocidad a `0`. |
 | Cráteres | 3 | Zona prohibida; caer termina el episodio en fracaso. |
 | Astronautas | 2 | Hay que pasar a más de `1 m`; tocarlos aplica `-5` y produce fracaso. |
 | Paredes | 4 lados | El choque aplica `-1`. |
@@ -42,14 +42,14 @@ Leyenda: `🚙` rover, `◆` muestras, `●` asteroides, `◯` cráteres, `👨�
 | Orientación | grados | `-180` | `180` |
 | Velocidad | m/s | `0` | `2` |
 | Batería | % | `0` | `100` |
-| Altura de salto | m | `0` | `1.5` |
+| Altura de salto | m | `0` | `0.8` |
 | Carga de muestra | booleano | `0` | `1` |
 | Adherencia | coeficiente | `0.3` | `1.0` |
 | Distancia al astronauta más cercano | m | `0` | `40` |
 
 ## 5. Clima y gravedad
 
-La gravedad es `3.71 m/s²`, la de Marte, y afecta la trayectoria vertical: el rover puede saltar más alto y caer más lentamente que en la Tierra. La condición base es seca, con adherencia `1.0`.
+La gravedad es `3.71 m/s²`, la de Marte, y afecta la trayectoria vertical. El salto parte de una velocidad vertical de `2.4 m/s`, alcanza aproximadamente `0.8 m` y dura cerca de `1.3 s`. La condición base es seca, con adherencia `1.0`.
 
 La perturbación experimental `dust_storm` añade ruido de sensores entre `0` y `0.5 m` y reduce la adherencia de `1.0` a `0.3`, haciendo que el rover patine más.
 
@@ -61,7 +61,7 @@ Las acciones de movimiento están normalizadas entre `-1` y `1`:
 |---|---:|---|
 | Mover / avance | `[-1,1]` | Controla avance y frenado. |
 | Girar | `[-1,1]` | Controla el giro. |
-| Saltar | `0/1` | Solo desde el suelo; permite superar rocas pequeñas y consume `3%` extra de batería. |
+| Saltar | `0/1` | Solo desde el suelo; permite superar rocas pequeñas, usa `2.4 m/s` verticales y consume `3%` extra de batería. |
 | Agarrar | `0/1` | Válido a menos de `0.5 m` de la muestra y con velocidad menor de `0.3 m/s`; en otro caso es inválido. |
 
 ## 7. Observación
@@ -74,23 +74,27 @@ Un paso simula `0.1 s` y sigue la secuencia: observar → actuar → aplicar fí
 
 ## 9. Truncamiento y fin
 
-El episodio se trunca a los `2000` pasos o cuando la batería llega a `0%`; esto no cuenta como éxito ni fracaso. Hay éxito cuando las muestras 1 y 2 fueron recogidas en orden y el rover regresó a la base. Hay fracaso al caer en un cráter o chocar con un astronauta.
+El episodio se trunca únicamente al alcanzar `2000` pasos. La batería en `0%` es una derrota suave: termina el episodio como fracaso con una penalización adicional de `-10`. Hay éxito cuando las muestras 1 y 2 fueron recogidas en orden y el rover regresó a la base. Hay fracaso al caer en un cráter, chocar con un astronauta o quedarse sin batería.
 
 ## 10. Premios y penalizaciones
 
 | Evento | Valor |
 |---|---:|
-| Acercarse a la muestra actual | `+0.1` |
+| Progreso hacia la muestra actual | `5 × (distancia anterior − distancia actual)` |
 | Primera recogida de cada muestra | `+10` |
 | Regresar a la base con las 2 muestras | `+20` |
-| Cada paso | `-0.01` |
+| Cada paso | `-0.03` |
+| Consumo por movimiento a velocidad máxima | `-0.03` por paso |
 | Choque con asteroide o pared | `-1` |
-| Giro brusco | `-0.05` |
+| Giro brusco | `-0.2` |
 | Salto innecesario | `-0.5` |
 | Agarre inválido | `-0.5` |
 | Tocar un astronauta | `-5` |
+| Batería agotada | `-10` |
 
-La recogida solo entrega premio la primera vez. El progreso solo se calcula hacia la muestra actual, respetando el orden, para impedir repetir muestras. Un salto sin una roca pequeña cerca se considera innecesario y no permite obtener progreso adicional.
+El progreso es diferencial: acercarse da positivo y alejarse da negativo. Como alternativa equivalente de implementación se puede guardar la mejor distancia de la etapa y premiar solo una mejora real. La recogida solo entrega premio la primera vez y el progreso solo se calcula hacia la muestra actual, respetando el orden. Un salto sin una roca pequeña cerca se considera innecesario y no permite obtener progreso adicional.
+
+Para evitar memorizar una única ruta, cada episodio usa una semilla: el mapa base conserva estas coordenadas, pero las muestras pueden desplazarse hasta `±2 m` y la orientación inicial puede variar. Los obstáculos deben seguir siendo válidos y no solaparse con la base ni con las muestras.
 
 ## 11. Evaluación
 

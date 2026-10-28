@@ -27,7 +27,7 @@ class MarsSampleRoverEnv(gym.Env):
         )
         # x, y, heading, speed, battery, height, cargo, stage, nearest astronaut,
         # distance and bearing to target, plus seven range sensors.
-        self.observation_space = spaces.Box(0, 1, shape=(17,), dtype=np.float32)
+        self.observation_space = spaces.Box(0, 1, shape=(18,), dtype=np.float32)
         self.base = np.array([4.0, 36.0])
         self.base_samples = [np.array([22.0, 32.0]), np.array([18.0, 5.0])]
         self.asteroids = [(8, 33, 1.5), (17, 24, 1.5), (27, 28, 1.25),

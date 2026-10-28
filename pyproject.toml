@@ -10,6 +10,7 @@ dependencies = ["gymnasium>=1.0,<2", "numpy>=1.26"]
 
 [project.scripts]
 rally = "rally.cli:main"
+mars-rover = "mars_rover.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["rally*"]

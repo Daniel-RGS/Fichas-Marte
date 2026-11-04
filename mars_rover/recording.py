@@ -30,19 +30,25 @@ def save_episode(path, policy, seed=7, dust_storm=False, map_variant="normal"):
 
 
 def manual_policy():
-    waypoint = {"index": 0, "env": None}
+    waypoint = {"index": 0, "env": None, "route": [], "route_target": -1}
 
     def policy(env, _obs):
         if waypoint["env"] is not env or env.steps == 0:
             waypoint["index"] = 0
             waypoint["env"] = env
-        if env.stage < 2:
-            target = env._target(); slow = True
-        else:
-            points = [np.array([12., 26.]), np.array([6., 30.]), env.base]
-            target = points[waypoint["index"]]; slow = waypoint["index"] == 2
-            if np.linalg.norm(target - env.position) < 1.5 and waypoint["index"] < 2:
-                waypoint["index"] += 1; target = points[waypoint["index"]]; slow = False
+            waypoint["route"] = []
+            waypoint["route_target"] = -1
+        if waypoint["route_target"] != env.stage:
+            route = env._grid_route(env.position, env._target())
+            waypoint["route"] = route or [env._target()]
+            waypoint["index"] = min(1, len(waypoint["route"]) - 1)
+            waypoint["route_target"] = env.stage
+        points = waypoint["route"] or [env._target()]
+        target = points[min(waypoint["index"], len(points) - 1)]
+        slow = np.linalg.norm(target - env._target()) < 1.6
+        if np.linalg.norm(target - env.position) < 1.2 and waypoint["index"] < len(points) - 1:
+            waypoint["index"] += 1
+            target = points[waypoint["index"]]
         delta = target - env.position
         distance = np.linalg.norm(delta)
         desired = np.arctan2(delta[1], delta[0])
@@ -53,7 +59,9 @@ def manual_policy():
         elif slow and distance < 3:
             throttle = -1 if env.speed > .5 else .2
         else:
-            throttle = .65 if abs(error) < .8 else .05
+            throttle = .38 if env.map_variant in {"D", "3D"} else .65
+            if abs(error) >= .8:
+                throttle = .05
         grab = float(env.stage < 2 and np.linalg.norm(env._target() - env.position) < .8 and env.speed < .15)
         jump = 0.0
         if env.height == 0 and env.speed < 1.6:

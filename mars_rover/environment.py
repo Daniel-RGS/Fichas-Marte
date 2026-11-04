@@ -28,7 +28,8 @@ class MarsSampleRoverEnv(gym.Env):
         )
         # x, y, heading, speed, battery, height, cargo, stage, nearest astronaut,
         # distance and bearing to target, plus seven range sensors.
-        self.observation_space = spaces.Box(0, 1, shape=(18,), dtype=np.float32)
+        # Las tres últimas lecturas hacen visible el peligro y el terreno cercano.
+        self.observation_space = spaces.Box(0, 1, shape=(22,), dtype=np.float32)
         self.base = np.array([4.0, 36.0])
         self.base_samples = [np.array([22.0, 32.0]), np.array([18.0, 5.0])]
         self.asteroids = [(8, 33, 1.5), (17, 24, 1.5), (27, 28, 1.25),
@@ -37,6 +38,8 @@ class MarsSampleRoverEnv(gym.Env):
         self.small_rocks = list(self.base_small_rocks)
         self.craters = [(7, 24, 2.5), (31, 35, 2.5), (24, 12, 3.0)]
         self.astronauts = [(16, 30), (32, 15)]
+        self.sand_zones = [(22.0, 30.0, 3.5), (18.0, 12.0, 3.0)]
+        self.slope_zone = (27.0, 20.0, 8.0, 24.0, 30.0)
 
     def _target(self):
         return self.samples[self.stage] if self.stage < 2 else self.base
@@ -49,14 +52,18 @@ class MarsSampleRoverEnv(gym.Env):
         delta = target - self.position
         distance = min(40.0, np.linalg.norm(delta))
         bearing = (np.arctan2(delta[1], delta[0]) - self.heading + pi) % (2 * pi) - pi
-        nearest_astronaut = min(self._distance(np.array(a)) for a in self.astronauts)
+        nearest_astronaut = min(self._distance(np.array(a)) for a in self.astronauts_current)
+        nearest_crater = min(self._distance(np.array(c[:2])) for c in self.craters_current)
+        terrain, slope = self._terrain_reading(self.position)
+        ahead_terrain, _ = self._terrain_reading(self.position + 2 * np.array([cos(self.heading), sin(self.heading)]))
         rays = []
         for offset in np.linspace(-pi / 2, pi / 2, 7):
             angle = self.heading + offset
             rays.append(self._ray_distance(angle))
         raw = [*self.position / 40, (self.heading + pi) / (2 * pi), self.speed / 2,
                self.battery / 100, self.height / 0.8, float(self.cargo), self.stage / 2,
-               nearest_astronaut / 40, distance / 40, (bearing + pi) / (2 * pi),
+               nearest_astronaut / 40, nearest_crater / 40, distance / 40, (bearing + pi) / (2 * pi),
+               terrain, ahead_terrain, slope,
                *[np.clip(r + (self.np_random.uniform(-0.5, 0.5) if self.dust_storm else 0), 0, 40) / 40 for r in rays]]
         return np.asarray(raw, dtype=np.float32)
 
@@ -79,26 +86,20 @@ class MarsSampleRoverEnv(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
-        if self.map_variant not in {"normal", "A", "D"}:
-            raise ValueError("map_variant debe ser normal, A o D")
+        if self.map_variant not in {"normal", "A", "D", "3D", "3E"}:
+            raise ValueError("map_variant debe ser normal, A, D, 3D o 3E")
         self.asteroids_current = list(self.asteroids)
         self.craters_current = list(self.craters)
+        self.astronauts_current = list(self.astronauts)
         self.small_rocks = list(self.base_small_rocks)
         if self.map_variant == "A":
             # Cruzan el camino directo entre la base y la muestra 1.
             self.small_rocks = [(10.0 + i * 0.85, 34.0, 0.38) for i in range(5)]
-        elif self.map_variant == "D":
+        elif self.map_variant in {"D", "3D"}:
             self._randomize_map()
-        self.samples = []
-        for base_sample in self.base_samples:
-            for _ in range(100):
-                candidate = np.clip(base_sample + self.np_random.uniform(-2, 2, size=2), 1, 39)
-                blocked = any(np.linalg.norm(candidate - np.array(o[:2])) <= o[2] + .8 for o in [*self.asteroids_current, *self.craters_current, *self.small_rocks])
-                if not blocked and all(np.linalg.norm(candidate - other) > 1.5 for other in self.samples):
-                    self.samples.append(candidate)
-                    break
-            else:
-                self.samples.append(np.array(base_sample, dtype=float))
+        if self.map_variant == "3E":
+            self.sand_zones = [(18.0, 29.0, 4.0), (24.0, 15.0, 3.5), (30.0, 29.0, 3.0)]
+        self.samples = self._place_samples()
         self.position = self.base.copy()
         self.heading = float(self.np_random.uniform(-pi, pi))
         self.speed = 0.0
@@ -118,20 +119,92 @@ class MarsSampleRoverEnv(gym.Env):
             "asteroids": [list(p) for p in self.asteroids_current],
             "craters": [list(p) for p in self.craters_current],
             "small_rocks": [list(p) for p in self.small_rocks],
+            "astronauts": [list(p) for p in self.astronauts_current],
+            "sand_zones": [list(p) for p in self.sand_zones],
         }
         return self._observation(), {"dust_storm": self.dust_storm}
 
     def _randomize_map(self):
-        """Desplaza obstáculos manteniendo separación entre objetos y límites."""
+        """Sortea el mapa 3D y rechaza colocaciones sin ruta comprobable."""
+        for _ in range(40):
+            asteroids = self._random_objects(self.asteroids, 2.0)
+            craters = self._random_objects(self.craters, 2.0)
+            astronauts = self._random_points(2, 3.0)
+            self.asteroids_current, self.craters_current, self.astronauts_current = asteroids, craters, astronauts
+            self.small_rocks = list(self.base_small_rocks)
+            if self._route_exists() and self._route_cost() < 0.60 * 100:
+                return
+        self.asteroids_current, self.craters_current = list(self.asteroids), list(self.craters)
+        self.astronauts_current = list(self.astronauts)
+
+    def _random_objects(self, originals, separation):
+        result = []
+        for _, _, radius in originals:
+            for _ in range(100):
+                p = self.np_random.uniform(4, 36, size=2)
+                if np.linalg.norm(p - self.base) < 4:
+                    continue
+                if all(np.linalg.norm(p - np.array(q[:2])) >= separation + radius + q[2] for q in result):
+                    result.append((float(p[0]), float(p[1]), radius)); break
+        return result if len(result) == len(originals) else list(originals)
+
+    def _random_points(self, count, separation):
+        result = []
+        for _ in range(count):
+            for _ in range(100):
+                p = self.np_random.uniform(4, 36, size=2)
+                if np.linalg.norm(p - self.base) >= 4 and all(np.linalg.norm(p - q) >= separation for q in result):
+                    result.append(p); break
+        return [tuple(map(float, p)) for p in result] if len(result) == count else list(self.astronauts)
+
+    def _place_samples(self):
         for _ in range(100):
-            moved = []
-            for ox, oy, radius in self.asteroids:
-                candidate = np.clip(np.array([ox, oy]) + self.np_random.uniform(-2, 2, size=2), 3, 37)
-                if all(np.linalg.norm(candidate - np.array(other[:2])) > radius + other[2] + 1.0 for other in moved):
-                    moved.append((float(candidate[0]), float(candidate[1]), radius))
-            if len(moved) == len(self.asteroids):
-                self.asteroids_current = moved
-                break
+            samples = [np.clip(p + self.np_random.uniform(-2, 2, size=2), 5, 35) for p in self.base_samples]
+            if all(np.linalg.norm(p - self.base) >= 4 for p in samples) and all(
+                np.linalg.norm(p - np.array(o[:2])) >= 2 + o[2] for p in samples for o in [*self.asteroids_current, *self.craters_current]
+            ) and np.linalg.norm(samples[0] - samples[1]) >= 2:
+                if self.map_variant not in {"3D", "D"} or self._route_exists(samples):
+                    return samples
+        return [p.copy() for p in self.base_samples]
+
+    def _route_exists(self, points=None):
+        points = points or [*self.samples] if hasattr(self, "samples") and self.samples else list(self.base_samples)
+        points = [self.base, *points, self.base]
+        return all(self._grid_path(a, b) for a, b in zip(points, points[1:]))
+
+    def _grid_path(self, start, goal):
+        return bool(self._grid_route(start, goal))
+
+    def _grid_route(self, start, goal):
+        start, goal = tuple(np.round(start).astype(int)), tuple(np.round(goal).astype(int))
+        todo, seen = [start], {start: None}
+        while todo:
+            x, y = todo.pop(0)
+            if (x, y) == goal:
+                route = []
+                node = goal
+                while node is not None:
+                    route.append(np.array(node, dtype=float) + .5)
+                    node = seen[node]
+                return list(reversed(route))
+            for nx, ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)):
+                if not (0 <= nx < 40 and 0 <= ny < 40) or (nx, ny) in seen: continue
+                p = np.array([nx, ny], dtype=float)
+                blocked = any(np.linalg.norm(p - np.array(o[:2])) <= o[2] + .45 for o in [*self.asteroids_current, *self.craters_current])
+                blocked = blocked or any(np.linalg.norm(p - np.array(o)) <= 1.45 for o in self.astronauts_current)
+                if not blocked: seen[(nx, ny)] = (x, y); todo.append((nx, ny))
+        return []
+
+    def _route_cost(self):
+        points = [self.base, *getattr(self, "samples", self.base_samples), self.base]
+        return sum(np.linalg.norm(b-a) for a, b in zip(points, points[1:]))
+
+    def _terrain_reading(self, point):
+        if any(np.linalg.norm(point - np.array(z[:2])) <= z[2] for z in self.sand_zones): return 1.0, 0.0
+        x, y = point
+        if self.slope_zone[0] <= x <= self.slope_zone[2] and self.slope_zone[1] <= y <= self.slope_zone[3]:
+            return 0.5, 0.4
+        return 0.0, 0.5
 
     def step(self, action):
         action = np.asarray(action, dtype=np.float32)
@@ -139,6 +212,8 @@ class MarsSampleRoverEnv(gym.Env):
         self.steps += 1
         reward = -0.03
         events = []
+        terrain, slope = self._terrain_reading(self.position)
+        terrain_factor = 2.0 if terrain == 1.0 else (1.8 if slope > 0.5 and throttle > 0 else (0.6 if slope > 0.5 else 1.0))
         if self.dust_storm:
             adhesion = 0.3
             sensor_noise = self.np_random.uniform(-0.5, 0.5)
@@ -147,7 +222,8 @@ class MarsSampleRoverEnv(gym.Env):
         old_position = self.position.copy()
         self.heading = (self.heading + float(turn) * 0.2 + pi) % (2 * pi) - pi
         friction = 0.08 if abs(float(throttle)) < 0.05 else 0.0
-        self.speed = float(np.clip(self.speed + throttle * 0.18 * adhesion - friction, 0, 2))
+        speed_limit = 1.2 if terrain == 1.0 else 2.0
+        self.speed = float(np.clip(self.speed + throttle * 0.18 * adhesion - friction, 0, speed_limit))
         if abs(turn) > 0.8: reward -= 0.2
         was_airborne = self.height > 0
         if jump > 0.5 and self.height == 0 and self.speed <= 2:
@@ -160,7 +236,7 @@ class MarsSampleRoverEnv(gym.Env):
             if was_airborne and self.height == 0:
                 events.append({"type": "landing", "position": self.position.tolist(), "reward": 0})
         self.position += np.array([cos(self.heading), sin(self.heading)]) * self.speed * 0.1
-        self.battery = max(0, self.battery - 0.03 - 0.03 * (self.speed / 2))
+        self.battery = max(0, self.battery - (0.03 + 0.03 * (self.speed / 2)) * terrain_factor)
         if self.battery < 10 and self.battery + 0.03 + 0.03 * (self.speed / 2) >= 10:
             events.append({"type": "battery_low", "position": self.position.tolist(), "reward": 0})
         reward -= 0.03 * (self.speed / 2)
@@ -183,7 +259,7 @@ class MarsSampleRoverEnv(gym.Env):
         if any(self._distance(np.array(c[:2])) <= c[2] for c in self.craters_current):
             terminated, reward = True, reward - 100
             events.append({"type": "crater", "position": self.position.tolist(), "reward": -100})
-        if any(self._distance(np.array(a)) <= 1 for a in self.astronauts):
+        if any(self._distance(np.array(a)) <= 1 for a in self.astronauts_current):
             terminated, reward = True, reward - 100
             events.append({"type": "astronaut", "position": self.position.tolist(), "reward": -100})
         if not (0 <= self.position[0] <= 40 and 0 <= self.position[1] <= 40):

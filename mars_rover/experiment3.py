@@ -53,9 +53,9 @@ def print_report(variant, rows):
 def main():
     parser = argparse.ArgumentParser(description="Evaluación del Experimento 3")
     parser.add_argument("--seeds", type=int, default=50)
-    parser.add_argument("--variant", choices=["normal", "A", "D", "all"], default="all")
+    parser.add_argument("--variant", choices=["normal", "A", "D", "3D", "3E", "all"], default="all")
     args = parser.parse_args()
-    variants = ["normal", "A", "D"] if args.variant == "all" else [args.variant]
+    variants = ["normal", "A", "3D", "3E"] if args.variant == "all" else [args.variant]
     for variant in variants:
         print_report(variant, run_policy(variant, manual_policy, args.seeds))
 

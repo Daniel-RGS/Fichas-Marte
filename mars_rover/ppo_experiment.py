@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from .environment import MarsSampleRoverEnv
@@ -16,7 +17,7 @@ ROOT = Path("artifacts/ppo-rover")
 
 def make_env(dust_storm=False, seed_offset=0):
     def factory():
-        env = MarsSampleRoverEnv(dust_storm=dust_storm, map_variant="normal")
+        env = Monitor(MarsSampleRoverEnv(dust_storm=dust_storm, map_variant="normal"))
         env.reset(seed=seed_offset)
         return env
     return factory

@@ -25,6 +25,8 @@ def make_env(dust_storm=False, seed_offset=0):
 
 
 def train(total_steps, resume=False):
+    from .smoke_test import run as smoke_test
+    smoke_test()
     ROOT.mkdir(parents=True, exist_ok=True)
     env = DummyVecEnv([make_env(seed_offset=i) for i in range(8)])
     if resume and (ROOT / "model.zip").exists() and (ROOT / "vecnormalize.pkl").exists():

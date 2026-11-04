@@ -117,6 +117,8 @@ class MarsSampleRoverEnv(gym.Env):
         self.wall_contact_steps = 10
         self.wall_contact = False
         self.collision_count = 0
+        self.min_sample_distance = self._distance(self.samples[0])
+        self.grab_attempts = 0
         self.episode_metadata = {
             "seed": seed,
             "dust_storm": self.dust_storm,
@@ -251,6 +253,7 @@ class MarsSampleRoverEnv(gym.Env):
         reward -= 0.03 * (self.speed / 2)
         picked = False
         if grab > 0.5:
+            self.grab_attempts += 1
             if self.stage < 2 and self._distance(self._target()) < 0.8 and self.speed < 0.15:
                 sample_number = self.stage + 1
                 sample_position = self._target().copy().tolist()
@@ -262,6 +265,7 @@ class MarsSampleRoverEnv(gym.Env):
                 events.append({"type": "invalid_grab", "position": self.position.tolist(), "reward": -0.5})
         previous = self.distance_to_target
         self.distance_to_target = self._distance(self._target())
+        self.min_sample_distance = min(self.min_sample_distance, self._distance(self.samples[0]))
         if not picked:
             reward += 5 * (previous - self.distance_to_target)
         terminated = False
@@ -310,7 +314,9 @@ class MarsSampleRoverEnv(gym.Env):
                                 "heading": self.heading, "speed": self.speed,
                                 "height": self.height, "battery": self.battery})
         info = {"battery": self.battery, "stage": self.stage, "sensor_noise": sensor_noise,
-                "events": events, "collision_count": self.collision_count}
+                "events": events, "collision_count": self.collision_count,
+                "min_sample_distance": self.min_sample_distance,
+                "grab_attempts": self.grab_attempts}
         if terminated or truncated:
             info["termination_cause"] = events[-1]["type"] if events else "unknown"
         return self._observation(), float(reward), terminated, truncated, info

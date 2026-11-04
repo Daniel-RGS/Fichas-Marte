@@ -112,6 +112,7 @@ class MarsSampleRoverEnv(gym.Env):
         self.distance_to_target = self._distance(self._target())
         self.events = []
         self.trajectory = []
+        self.in_asteroid_contact = False
         self.episode_metadata = {
             "seed": seed,
             "dust_storm": self.dust_storm,
@@ -268,9 +269,15 @@ class MarsSampleRoverEnv(gym.Env):
             reward -= 1; self.position = np.clip(self.position, 0, 40)
         collisions = list(self.asteroids_current) if self.height == 0 else [a for a in self.asteroids_current if a[2] > 0.4]
         collisions += self.small_rocks if self.height == 0 else []
-        if any(self._distance(np.array(a[:2])) <= a[2] for a in collisions):
-            self.position = old_position; self.speed = 0; reward -= 10
-            events.append({"type": "asteroid_collision", "position": self.position.tolist(), "reward": -10})
+        touching_asteroid = any(self._distance(np.array(a[:2])) <= a[2] for a in collisions)
+        if touching_asteroid:
+            self.position = old_position; self.speed = 0
+            if not self.in_asteroid_contact:
+                reward -= 10
+                events.append({"type": "asteroid_collision", "position": self.position.tolist(), "reward": -10})
+            self.in_asteroid_contact = True
+        else:
+            self.in_asteroid_contact = False
         if not terminated and self.stage == 2 and self._distance(self.base) <= 2:
             terminated, reward = True, reward + 50
             events.append({"type": "victory", "position": self.position.tolist(), "reward": 50})
@@ -287,6 +294,8 @@ class MarsSampleRoverEnv(gym.Env):
                                 "heading": self.heading, "speed": self.speed,
                                 "height": self.height, "battery": self.battery})
         info = {"battery": self.battery, "stage": self.stage, "sensor_noise": sensor_noise, "events": events}
+        if terminated or truncated:
+            info["termination_cause"] = events[-1]["type"] if events else "unknown"
         return self._observation(), float(reward), terminated, truncated, info
 
     def render(self):

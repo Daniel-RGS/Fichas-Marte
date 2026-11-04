@@ -113,6 +113,10 @@ class MarsSampleRoverEnv(gym.Env):
         self.events = []
         self.trajectory = []
         self.in_asteroid_contact = False
+        self.asteroid_contact_steps = 10
+        self.wall_contact_steps = 10
+        self.wall_contact = False
+        self.collision_count = 0
         self.episode_metadata = {
             "seed": seed,
             "dust_storm": self.dust_storm,
@@ -265,8 +269,15 @@ class MarsSampleRoverEnv(gym.Env):
         if any(self._distance(np.array(a)) <= 1 for a in self.astronauts_current):
             terminated, reward = True, reward - 100
             events.append({"type": "astronaut", "position": self.position.tolist(), "reward": -100})
-        if not (0 <= self.position[0] <= 40 and 0 <= self.position[1] <= 40):
-            reward -= 1; self.position = np.clip(self.position, 0, 40)
+        outside = not (0 <= self.position[0] <= 40 and 0 <= self.position[1] <= 40)
+        if outside:
+            self.position = np.clip(self.position, 0, 40)
+            if not self.wall_contact:
+                reward -= 1
+                events.append({"type": "wall_collision", "position": self.position.tolist(), "reward": -1})
+            self.wall_contact = True
+        elif np.min(np.minimum(self.position, 40 - self.position)) > 0.3:
+            self.wall_contact = False
         collisions = list(self.asteroids_current) if self.height == 0 else [a for a in self.asteroids_current if a[2] > 0.4]
         collisions += self.small_rocks if self.height == 0 else []
         touching_asteroid = any(self._distance(np.array(a[:2])) <= a[2] for a in collisions)
@@ -277,7 +288,9 @@ class MarsSampleRoverEnv(gym.Env):
                 events.append({"type": "asteroid_collision", "position": self.position.tolist(), "reward": -10})
             self.in_asteroid_contact = True
         else:
-            self.in_asteroid_contact = False
+            self.in_asteroid_contact = any(self._distance(np.array(a[:2])) <= a[2] + .3 for a in collisions)
+        if any(e["type"] in {"asteroid_collision", "wall_collision"} for e in events):
+            self.collision_count += sum(e["type"] in {"asteroid_collision", "wall_collision"} for e in events)
         if not terminated and self.stage == 2 and self._distance(self.base) <= 2:
             terminated, reward = True, reward + 50
             events.append({"type": "victory", "position": self.position.tolist(), "reward": 50})
@@ -293,7 +306,8 @@ class MarsSampleRoverEnv(gym.Env):
         self.trajectory.append({"step": self.steps, "position": self.position.tolist(),
                                 "heading": self.heading, "speed": self.speed,
                                 "height": self.height, "battery": self.battery})
-        info = {"battery": self.battery, "stage": self.stage, "sensor_noise": sensor_noise, "events": events}
+        info = {"battery": self.battery, "stage": self.stage, "sensor_noise": sensor_noise,
+                "events": events, "collision_count": self.collision_count}
         if terminated or truncated:
             info["termination_cause"] = events[-1]["type"] if events else "unknown"
         return self._observation(), float(reward), terminated, truncated, info

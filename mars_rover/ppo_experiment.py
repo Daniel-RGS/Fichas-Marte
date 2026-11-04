@@ -57,17 +57,24 @@ def evaluate(episodes):
         for i in range(episodes):
             env = MarsSampleRoverEnv(dust_storm=storm, map_variant="normal")
             obs, _ = env.reset(seed=10000 + i)
+            jumps = collisions = stationary = 0
+            headings = []
             while True:
                 normalized = eval_env.normalize_obs(obs[None, ...])
                 action, _ = model.predict(normalized, deterministic=True)
-                obs, _, terminated, truncated, _ = env.step(action[0])
+                obs, _, terminated, truncated, info = env.step(action[0])
+                jumps += sum(e["type"] == "jump" for e in info.get("events", []))
+                collisions = info.get("collision_count", collisions)
+                stationary += int(env.speed < .03)
+                headings.append(env.heading)
                 if terminated or truncated:
                     break
-            results.append((cause(env, terminated, truncated), env.battery, env.steps))
-        wins = sum(c == "victoria" for c, _, _ in results)
-        print(f"tormenta={storm} misiones={wins}/{episodes} bateria_media={np.mean([b for _, b, _ in results]):.1f}% pasos_medios={np.mean([s for _, _, s in results]):.1f}")
+            turns = int(np.sum(np.abs(np.diff(np.unwrap(headings))) > .1)) if len(headings) > 1 else 0
+            results.append((cause(env, terminated, truncated), env.battery, env.steps, jumps, collisions, stationary, turns))
+        wins = sum(r[0] == "victoria" for r in results)
+        print(f"tormenta={storm} misiones={wins}/{episodes} bateria_media={np.mean([r[1] for r in results]):.1f}% pasos_medios={np.mean([r[2] for r in results]):.1f} saltos={np.mean([r[3] for r in results]):.1f} choques={np.mean([r[4] for r in results]):.1f} quietud={np.mean([r[5] for r in results]):.1f} giros={np.mean([r[6] for r in results]):.1f}")
         counts = {}
-        for c, _, _ in results: counts[c] = counts.get(c, 0) + 1
+        for r in results: counts[r[0]] = counts.get(r[0], 0) + 1
         print("causas=" + ", ".join(f"{k}:{v}" for k, v in sorted(counts.items())))
     eval_env.close()
 

@@ -29,7 +29,7 @@ def save_episode(path, policy, seed=7, dust_storm=False, map_variant="normal"):
     return recording
 
 
-def manual_policy():
+def manual_policy(avoid_small_rocks=False):
     waypoint = {"index": 0, "env": None, "route": [], "route_target": -1}
 
     def policy(env, _obs):
@@ -38,12 +38,20 @@ def manual_policy():
             waypoint["env"] = env
             waypoint["route"] = []
             waypoint["route_target"] = -1
-        if waypoint["route_target"] != env.stage:
+        use_route = env.map_variant in {"D", "3D"} or avoid_small_rocks
+        if use_route and waypoint["route_target"] != env.stage:
             route = env._grid_route(env.position, env._target())
             waypoint["route"] = route or [env._target()]
             waypoint["index"] = min(1, len(waypoint["route"]) - 1)
             waypoint["route_target"] = env.stage
-        points = waypoint["route"] or [env._target()]
+        if use_route:
+            points = waypoint["route"] or [env._target()]
+        elif env.stage < 2:
+            points = [env._target()]
+        else:
+            points = [np.array([12., 26.]), np.array([6., 30.]), env.base]
+            if waypoint["route_target"] != env.stage:
+                waypoint["index"] = 0; waypoint["route_target"] = env.stage
         target = points[min(waypoint["index"], len(points) - 1)]
         slow = np.linalg.norm(target - env._target()) < 1.6
         if np.linalg.norm(target - env.position) < 1.2 and waypoint["index"] < len(points) - 1:
@@ -64,7 +72,7 @@ def manual_policy():
                 throttle = .05
         grab = float(env.stage < 2 and np.linalg.norm(env._target() - env.position) < .8 and env.speed < .15)
         jump = 0.0
-        if env.height == 0 and env.speed < 1.6:
+        if not avoid_small_rocks and env.height == 0 and env.speed < 1.6:
             near_small_rock = any(np.linalg.norm(env.position - np.array(r[:2])) < r[2] + 1.0 for r in env.small_rocks)
             jump = float(near_small_rock)
         return [throttle, turn, jump, grab]

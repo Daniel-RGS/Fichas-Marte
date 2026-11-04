@@ -94,12 +94,13 @@ class MarsSampleRoverEnv(gym.Env):
         self.small_rocks = list(self.base_small_rocks)
         if self.map_variant == "A":
             # Cruzan el camino directo entre la base y la muestra 1.
-            self.small_rocks = [(10.0 + i * 0.85, 34.0, 0.38) for i in range(5)]
+            self.small_rocks = [(9.0 + i * 0.75, 34.0, 0.38) for i in range(11)]
         elif self.map_variant in {"D", "3D"}:
             self._randomize_map()
         if self.map_variant == "3E":
             self.sand_zones = [(18.0, 29.0, 4.0), (24.0, 15.0, 3.5), (30.0, 29.0, 3.0)]
         self.samples = self._place_samples()
+        self.route_valid = self._route_exists(self.samples)
         self.position = self.base.copy()
         self.heading = float(self.np_random.uniform(-pi, pi))
         self.speed = 0.0
@@ -121,6 +122,7 @@ class MarsSampleRoverEnv(gym.Env):
             "small_rocks": [list(p) for p in self.small_rocks],
             "astronauts": [list(p) for p in self.astronauts_current],
             "sand_zones": [list(p) for p in self.sand_zones],
+            "route_valid": self.route_valid,
         }
         return self._observation(), {"dust_storm": self.dust_storm}
 
@@ -190,7 +192,7 @@ class MarsSampleRoverEnv(gym.Env):
             for nx, ny in ((x+1,y),(x-1,y),(x,y+1),(x,y-1)):
                 if not (0 <= nx < 40 and 0 <= ny < 40) or (nx, ny) in seen: continue
                 p = np.array([nx, ny], dtype=float)
-                blocked = any(np.linalg.norm(p - np.array(o[:2])) <= o[2] + .45 for o in [*self.asteroids_current, *self.craters_current])
+                blocked = any(np.linalg.norm(p - np.array(o[:2])) <= o[2] + .45 for o in [*self.asteroids_current, *self.craters_current, *self.small_rocks])
                 blocked = blocked or any(np.linalg.norm(p - np.array(o)) <= 1.45 for o in self.astronauts_current)
                 if not blocked: seen[(nx, ny)] = (x, y); todo.append((nx, ny))
         return []

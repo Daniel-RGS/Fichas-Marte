@@ -38,15 +38,21 @@ def run_policy(variant, policy_factory, seeds=50):
             "steps": env.steps,
             "cause": failure_cause(env, terminated, truncated),
             "reward": total,
+            "jumps": sum(event["type"] == "jump" for event in env.events),
+            "route_valid": env.route_valid,
         })
     return rows
 
 
 def print_report(variant, rows):
     successes = sum(row["success"] for row in rows)
+    successful = [r for r in rows if r["success"]]
+    mean_battery = np.mean([r["battery"] for r in successful]) if successful else 0
+    mean_steps = np.mean([r["steps"] for r in successful]) if successful else 0
     print(f"variante={variant} misiones={successes}/{len(rows)} "
-          f"bateria_media={np.mean([r['battery'] for r in rows]):.1f}% "
-          f"pasos_medios={np.mean([r['steps'] for r in rows]):.1f}")
+          f"bateria_exitos={mean_battery:.1f}% pasos_exitos={mean_steps:.1f} "
+          f"bateria_todos={np.mean([r['battery'] for r in rows]):.1f}% pasos_todos={np.mean([r['steps'] for r in rows]):.1f} "
+          f"saltos_media={np.mean([r['jumps'] for r in rows]):.1f} mapas_resolubles={sum(r['route_valid'] for r in rows)}/{len(rows)}")
     print("causas=" + ", ".join(f"{key}:{value}" for key, value in sorted(Counter(r["cause"] for r in rows).items())))
 
 
@@ -58,6 +64,8 @@ def main():
     variants = ["normal", "A", "3D", "3E"] if args.variant == "all" else [args.variant]
     for variant in variants:
         print_report(variant, run_policy(variant, manual_policy, args.seeds))
+    if args.variant == "A":
+        print_report("A-rodear", run_policy("A", lambda: manual_policy(avoid_small_rocks=True), args.seeds))
 
 
 if __name__ == "__main__":

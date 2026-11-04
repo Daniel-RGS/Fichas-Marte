@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +13,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from .environment import MarsSampleRoverEnv
 
-ROOT = Path("artifacts/ppo-rover")
+ROOT = Path(os.environ.get("MARS_PPO_ROOT", "artifacts/ppo-rover"))
 
 
 def make_env(dust_storm=False, seed_offset=0):

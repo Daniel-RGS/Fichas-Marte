@@ -207,6 +207,8 @@ class MarsSampleRoverEnv(gym.Env):
         return sum(np.linalg.norm(b-a) for a, b in zip(points, points[1:]))
 
     def _terrain_reading(self, point):
+        if self.map_variant != "3E":
+            return 0.0, 0.5
         if any(np.linalg.norm(point - np.array(z[:2])) <= z[2] for z in self.sand_zones): return 1.0, 0.0
         x, y = point
         if self.slope_zone[0] <= x <= self.slope_zone[2] and self.slope_zone[1] <= y <= self.slope_zone[3]:
@@ -272,6 +274,7 @@ class MarsSampleRoverEnv(gym.Env):
         outside = not (0 <= self.position[0] <= 40 and 0 <= self.position[1] <= 40)
         if outside:
             self.position = np.clip(self.position, 0, 40)
+            self.speed = 0.0
             if not self.wall_contact:
                 reward -= 1
                 events.append({"type": "wall_collision", "position": self.position.tolist(), "reward": -1})

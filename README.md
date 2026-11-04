@@ -15,4 +15,6 @@ El ambiente es una pista discreta con checkpoints ordenados. El agente observa s
 - `mars_rover/recording.py`: grabaciones con estados y eventos.
 - `docs/mars_rover_visor_3d_estilo_mario64.html`: visor 3D.
 - `rally/graphics.py`: motor gráfico opcional con pygame.
+- `docs/experimento-3-dificultad-rover.md`: evaluación del mapa normal y variantes A/D.
+- `mars_rover/experiment3.py`: comparación de 50 semillas y causas de fallo.
 - `scripts/setup.sh`: creación del entorno virtual e instalación.

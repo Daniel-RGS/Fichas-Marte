@@ -16,9 +16,10 @@ class MarsSampleRoverEnv(gym.Env):
 
     metadata = {"render_modes": ["ansi"]}
 
-    def __init__(self, dust_storm=False, max_steps=2000, render_mode=None):
+    def __init__(self, dust_storm=False, map_variant="normal", max_steps=2000, render_mode=None):
         super().__init__()
         self.dust_storm = dust_storm
+        self.map_variant = map_variant
         self.max_steps = max_steps
         self.render_mode = render_mode
         self.action_space = spaces.Box(
@@ -32,7 +33,8 @@ class MarsSampleRoverEnv(gym.Env):
         self.base_samples = [np.array([22.0, 32.0]), np.array([18.0, 5.0])]
         self.asteroids = [(8, 33, 1.5), (17, 24, 1.5), (27, 28, 1.25),
                           (34, 22, 1.0), (13, 13, 1.0), (34, 8, 1.5)]
-        self.small_rocks = [(11.0, 29.0, 0.4)]
+        self.base_small_rocks = [(11.0, 29.0, 0.4)]
+        self.small_rocks = list(self.base_small_rocks)
         self.craters = [(7, 24, 2.5), (31, 35, 2.5), (24, 12, 3.0)]
         self.astronauts = [(16, 30), (32, 15)]
 
@@ -65,7 +67,7 @@ class MarsSampleRoverEnv(gym.Env):
         for bound in (0, 40):
             if direction[0]: values.append((bound - self.position[0]) / direction[0])
             if direction[1]: values.append((bound - self.position[1]) / direction[1])
-        for ox, oy, radius in [*self.asteroids, *self.small_rocks]:
+        for ox, oy, radius in [*self.asteroids_current, *self.small_rocks]:
             delta = np.array([ox, oy]) - self.position
             projection = float(delta @ direction)
             perpendicular = float(direction[0] * delta[1] - direction[1] * delta[0])
@@ -77,11 +79,21 @@ class MarsSampleRoverEnv(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
+        if self.map_variant not in {"normal", "A", "D"}:
+            raise ValueError("map_variant debe ser normal, A o D")
+        self.asteroids_current = list(self.asteroids)
+        self.craters_current = list(self.craters)
+        self.small_rocks = list(self.base_small_rocks)
+        if self.map_variant == "A":
+            # Cruzan el camino directo entre la base y la muestra 1.
+            self.small_rocks = [(10.0 + i * 0.85, 34.0, 0.38) for i in range(5)]
+        elif self.map_variant == "D":
+            self._randomize_map()
         self.samples = []
         for base_sample in self.base_samples:
             for _ in range(100):
                 candidate = np.clip(base_sample + self.np_random.uniform(-2, 2, size=2), 1, 39)
-                blocked = any(np.linalg.norm(candidate - np.array(o[:2])) <= o[2] + .8 for o in [*self.asteroids, *self.craters])
+                blocked = any(np.linalg.norm(candidate - np.array(o[:2])) <= o[2] + .8 for o in [*self.asteroids_current, *self.craters_current, *self.small_rocks])
                 if not blocked and all(np.linalg.norm(candidate - other) > 1.5 for other in self.samples):
                     self.samples.append(candidate)
                     break
@@ -101,9 +113,25 @@ class MarsSampleRoverEnv(gym.Env):
         self.episode_metadata = {
             "seed": seed,
             "dust_storm": self.dust_storm,
+            "map_variant": self.map_variant,
             "samples": [p.tolist() for p in self.samples],
+            "asteroids": [list(p) for p in self.asteroids_current],
+            "craters": [list(p) for p in self.craters_current],
+            "small_rocks": [list(p) for p in self.small_rocks],
         }
         return self._observation(), {"dust_storm": self.dust_storm}
+
+    def _randomize_map(self):
+        """Desplaza obstáculos manteniendo separación entre objetos y límites."""
+        for _ in range(100):
+            moved = []
+            for ox, oy, radius in self.asteroids:
+                candidate = np.clip(np.array([ox, oy]) + self.np_random.uniform(-2, 2, size=2), 3, 37)
+                if all(np.linalg.norm(candidate - np.array(other[:2])) > radius + other[2] + 1.0 for other in moved):
+                    moved.append((float(candidate[0]), float(candidate[1]), radius))
+            if len(moved) == len(self.asteroids):
+                self.asteroids_current = moved
+                break
 
     def step(self, action):
         action = np.asarray(action, dtype=np.float32)
@@ -152,7 +180,7 @@ class MarsSampleRoverEnv(gym.Env):
         if not picked:
             reward += 5 * (previous - self.distance_to_target)
         terminated = False
-        if any(self._distance(np.array(c[:2])) <= c[2] for c in self.craters):
+        if any(self._distance(np.array(c[:2])) <= c[2] for c in self.craters_current):
             terminated, reward = True, reward - 100
             events.append({"type": "crater", "position": self.position.tolist(), "reward": -100})
         if any(self._distance(np.array(a)) <= 1 for a in self.astronauts):
@@ -160,7 +188,7 @@ class MarsSampleRoverEnv(gym.Env):
             events.append({"type": "astronaut", "position": self.position.tolist(), "reward": -100})
         if not (0 <= self.position[0] <= 40 and 0 <= self.position[1] <= 40):
             reward -= 1; self.position = np.clip(self.position, 0, 40)
-        collisions = list(self.asteroids) if self.height == 0 else [a for a in self.asteroids if a[2] > 0.4]
+        collisions = list(self.asteroids_current) if self.height == 0 else [a for a in self.asteroids_current if a[2] > 0.4]
         collisions += self.small_rocks if self.height == 0 else []
         if any(self._distance(np.array(a[:2])) <= a[2] for a in collisions):
             self.position = old_position; self.speed = 0; reward -= 10

@@ -8,8 +8,8 @@ import numpy as np
 from .environment import MarsSampleRoverEnv
 
 
-def save_episode(path, policy, seed=7, dust_storm=False):
-    env = MarsSampleRoverEnv(dust_storm=dust_storm)
+def save_episode(path, policy, seed=7, dust_storm=False, map_variant="normal"):
+    env = MarsSampleRoverEnv(dust_storm=dust_storm, map_variant=map_variant)
     obs, _ = env.reset(seed=seed)
     done = False
     while not done:
@@ -30,9 +30,12 @@ def save_episode(path, policy, seed=7, dust_storm=False):
 
 
 def manual_policy():
-    waypoint = {"index": 0}
+    waypoint = {"index": 0, "env": None}
 
     def policy(env, _obs):
+        if waypoint["env"] is not env or env.steps == 0:
+            waypoint["index"] = 0
+            waypoint["env"] = env
         if env.stage < 2:
             target = env._target(); slow = True
         else:
@@ -52,6 +55,10 @@ def manual_policy():
         else:
             throttle = .65 if abs(error) < .8 else .05
         grab = float(env.stage < 2 and np.linalg.norm(env._target() - env.position) < .8 and env.speed < .15)
-        return [throttle, turn, 0, grab]
+        jump = 0.0
+        if env.height == 0 and env.speed < 1.6:
+            near_small_rock = any(np.linalg.norm(env.position - np.array(r[:2])) < r[2] + 1.0 for r in env.small_rocks)
+            jump = float(near_small_rock)
+        return [throttle, turn, jump, grab]
 
     return policy

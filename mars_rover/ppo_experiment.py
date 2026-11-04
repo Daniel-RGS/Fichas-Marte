@@ -80,9 +80,9 @@ def evaluate(episodes, deterministic=True, model_path=None):
                 if terminated or truncated:
                     break
             turns = int(np.sum(np.abs(np.diff(np.unwrap(headings))) > .1)) if len(headings) > 1 else 0
-            results.append((cause(env, terminated, truncated), env.battery, env.steps, jumps, collisions, stationary, turns, episode_reward))
+            results.append((cause(env, terminated, truncated), env.battery, env.steps, jumps, collisions, stationary, turns, episode_reward, env.min_sample_distance, env.grab_attempts))
         wins = sum(r[0] == "victoria" for r in results)
-        print(f"tormenta={storm} determinista={deterministic} misiones={wins}/{episodes} recompensa_real={np.mean([r[7] for r in results]):.2f} bateria_media={np.mean([r[1] for r in results]):.1f}% pasos_medios={np.mean([r[2] for r in results]):.1f} saltos={np.mean([r[3] for r in results]):.1f} choques={np.mean([r[4] for r in results]):.1f} quietud={np.mean([r[5] for r in results]):.1f} giros={np.mean([r[6] for r in results]):.1f}")
+        print(f"tormenta={storm} determinista={deterministic} misiones={wins}/{episodes} recompensa_real={np.mean([r[7] for r in results]):.2f} bateria_media={np.mean([r[1] for r in results]):.1f}% pasos_medios={np.mean([r[2] for r in results]):.1f} saltos={np.mean([r[3] for r in results]):.1f} choques={np.mean([r[4] for r in results]):.1f} quietud={np.mean([r[5] for r in results]):.1f} giros={np.mean([r[6] for r in results]):.1f} distancia_min_muestra1={np.mean([r[8] for r in results]):.2f} agarres={np.mean([r[9] for r in results]):.1f}")
         counts = {}
         for r in results: counts[r[0]] = counts.get(r[0], 0) + 1
         print("causas=" + ", ".join(f"{k}:{v}" for k, v in sorted(counts.items())))
